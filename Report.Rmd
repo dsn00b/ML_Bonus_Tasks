@@ -1,0 +1,309 @@
+---
+title: "Machine Learning: Special Tasks"
+author: "Shashi Nagarajan"
+date: "2021-01-03"
+output: pdf_document
+urlcolor: blue
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readr)
+library(glmnet)
+library(partykit)
+library(tidyr)
+library(ggplot2)
+library(kableExtra)
+```
+
+## 1: Variable selection with randomized LASSO
+
+Please find below the table showing the requested probabilities $\hat{\Pi}^{\lambda}_k$:
+
+``` {r, q1_1, echo = FALSE}
+set.seed(12345)
+
+parkinsons <- read_csv("parkinsons.csv", col_types = cols())
+full_data <- scale(subset(parkinsons, select = -total_UPDRS))
+
+y_full_data <- full_data[, "motor_UPDRS"]
+x_full_data <- subset(full_data, select = -motor_UPDRS)
+
+lambda <- seq(1, 0.1, -0.1)
+alpha <- 0.5
+pi_thr <- 0.7
+B <- 100
+
+col_weights <- runif(ncol(x_full_data), alpha, 1)
+resampling_indices <- sapply(1:B, function(i) 
+  sample(1:nrow(x_full_data), nrow(x_full_data), replace = TRUE))
+models <- sapply(1:B, function(i) glmnet(x_full_data[resampling_indices[, i], ], 
+                                         y_full_data[resampling_indices[, i]], 
+                                         family = "gaussian", 
+                                         lambda = seq(1, 0.1, -0.1), standardize = F,
+                                         penalty.factor = 1/col_weights)$beta != 0)
+num_times_selected <- sapply(1:length(lambda), function(i)
+  sapply(1:ncol(x_full_data), function(j) sum(sapply(models, function(x) x[j, i]))))
+row.names(num_times_selected) <- colnames(x_full_data)
+colnames(num_times_selected) <- paste("lambda =", lambda)
+
+pi_hat <- round(num_times_selected/100, 2)
+kbl(format(pi_hat, 2), booktabs = T) %>%
+  row_spec(0, angle = 90)
+```
+
+\ 
+
+Please find below the requested stable variable set, $\hat{S}^{stable}$:
+
+``` {r, q1_2, echo = FALSE}
+max_pi_hat <- sapply(1:nrow(pi_hat), function(x) max(pi_hat[x, ]))
+S_hat_stable <- which(max_pi_hat > 0.7)
+colnames(x_full_data)[S_hat_stable]
+```
+
+## 2: Model-Based decision trees
+
+Please find below the requested raster plot (based on 5000 to be the smallest possible number of observations in a tree node, as indicated in the assignment PDF, which results in only one leaf being generated):
+
+``` {r, q2, echo = FALSE, fig.asp = 0.4}
+women <- read_delim("Women.csv", ";", col_types = cols())
+colnames(women)[1] <- "Blood.Systolic"
+
+reg_model <- function(y, x, start = NULL, weights = NULL, offset = NULL, ...) {
+  
+  glm(y ~ 0 + x, family = gaussian, start = start, ...)
+  #loess(y ~ 0 + x, weights = weights, family = "gaussian", method = "loess", ...)
+  
+}
+
+tree <- mob(Blood.Systolic ~ height + weight | height + weight, data = women,
+                 fit = reg_model, control = mob_control(minsize = 5000))
+
+# plot(tree)
+
+new_height <- seq(min(women$height), max(women$height), len = 100)
+new_weight <- seq(min(women$weight), max(women$weight), len = 100)
+data_for_pred <- crossing(height = new_height, weight = new_weight)
+
+### taken from tree plot: plot(tree)
+data_for_pred$`Prediction (LM)` <- 
+  222.8732 -0.477*data_for_pred$height + 0.5575*data_for_pred$weight 
+
+loess_model <- loess(Blood.Systolic ~ height + weight,
+                     family = "gaussian", method = "loess", data = women)
+
+data_for_pred$`Prediction (LOESS)` <- predict(loess_model, data_for_pred)
+
+ggplot(data_for_pred) + geom_raster(aes(height, weight, fill = `Prediction (LM)`)) +
+  ggtitle("LM Predictions")
+
+ggplot(data_for_pred) + 
+  geom_raster(aes(height, weight, fill = `Prediction (LOESS)`)) +
+  ggtitle("LOESS Predictions")
+```
+
+## 3: Neural networks
+
+The following errors (rounded to two decimal places) were observed at the beginning of each 1000th network training iteration: \
+
+``` {r, q3_1, echo = FALSE}
+set.seed(1234567890)
+
+Var <- runif(50, 0, 10)
+trva <- data.frame(Var, Sin=sin(Var))
+tr <- trva[1:25,] # Training
+va <- trva[26:50,] # Validation
+
+# plot(trva)
+# plot(tr)
+# plot(va)
+
+l_rate <- 1/nrow(tr)^2
+n_ite = 25000
+
+# modified to allow sigmoid/tanh solutions to be computed simultaneously
+
+w_j_sigmoid <- runif(10, -1, 1)
+b_j_sigmoid <- runif(10, -1, 1)
+w_k_sigmoid <- runif(10, -1, 1)
+b_k_sigmoid <- runif(1, -1, 1)
+
+error_sigmoid <- rep(0, n_ite) 
+error_va_sigmoid <- rep(0, n_ite)
+
+w_j_tanh <- runif(10, -1, 1)
+b_j_tanh <- runif(10, -1, 1)
+w_k_tanh <- runif(10, -1, 1)
+b_k_tanh <- runif(1, -1, 1)
+
+error_tanh <- rep(0, n_ite)
+error_va_tanh <- rep(0, n_ite)
+
+for(i in 1:n_ite) {
+
+  # set up data
+  x_tr <- tr$Var
+  y_tr <- tr$Sin
+  
+  # error computation: Your code here
+  
+  # forward propagation
+  h1_sigmoid <- (x_tr %*% t(w_j_sigmoid)) + t(matrix(b_j_sigmoid, 10, nrow(tr)))
+  h1_tanh <- (x_tr %*% t(w_j_tanh)) + t(matrix(b_j_tanh, 10, nrow(tr)))
+  h1_sigmoid_va <- (va$Var %*% t(w_j_sigmoid)) + t(matrix(b_j_sigmoid, 10, nrow(va)))
+  h1_tanh_va <- (va$Var %*% t(w_j_tanh)) + t(matrix(b_j_tanh, 10, nrow(va)))
+  
+  a1_sigmoid <- 1 / (1 + exp(-h1_sigmoid))
+  a1_tanh <- 2 / (1 + exp(-2*h1_tanh)) - 1
+  a1_sigmoid_va <- 1 / (1 + exp(-h1_sigmoid_va))
+  a1_tanh_va <- 2 / (1 + exp(-2*h1_tanh_va)) - 1
+  
+  y_hat_sigmoid <- (a1_sigmoid %*% w_k_sigmoid) + b_k_sigmoid
+  y_hat_tanh <- (a1_tanh %*% w_k_tanh) + b_k_tanh
+  y_hat_sigmoid_va <- (a1_sigmoid_va %*% w_k_sigmoid) + b_k_sigmoid
+  y_hat_tanh_va <- (a1_tanh_va %*% w_k_tanh) + b_k_tanh
+  
+  # SSE error computation
+  error_sigmoid[i] <- sum((y_tr - y_hat_sigmoid)^2)
+  error_va_sigmoid[i] <- sum((va$Sin - y_hat_sigmoid_va)^2)
+  error_tanh[i] <- sum((y_tr - y_hat_tanh)^2)
+  error_va_tanh[i] <- sum((va$Sin - y_hat_tanh_va)^2)
+  
+  # print
+  if (i == 1 || i %% 1000 == 0) {
+    
+    cat("Iteration:", i, 
+        "Sigmoid error:", round(error_sigmoid[i]/2, 2), 
+        "Sigmoid error_va:", round(error_va_sigmoid[i]/2, 2), 
+        "Tanh error:", round(error_tanh[i]/2, 2),
+        "Tanh error_va:", round(error_va_tanh[i]/2, 2), "\n") 
+    flush.console()
+  
+  }
+  
+  for(n in 1:nrow(tr)) {
+    
+    # forward propagation: Your code here
+    
+    h1_sigmoid <- (x_tr[n] * w_j_sigmoid) + b_j_sigmoid
+    h1_tanh <- (x_tr[n] * w_j_tanh) + b_j_tanh
+    
+    a1_sigmoid <- 1 / (1 + exp(-h1_sigmoid))
+    a1_tanh <- 2 / (1 + exp(-2*h1_tanh)) - 1
+    
+    y_hat_sigmoid <- sum(a1_sigmoid * w_k_sigmoid) + b_k_sigmoid
+    y_hat_tanh <- sum(a1_tanh * w_k_tanh) + b_k_tanh
+    
+    # backward propagation: Your code here
+    
+    ### ASSUMPTION: error(y_hat | y) = 1/2 * (y_hat - y)^2
+    
+    delta_error_sigmoid_b_k <- (y_hat_sigmoid - y_tr[n])
+    delta_error_sigmoid_w_k <- delta_error_sigmoid_b_k*a1_sigmoid
+    delta_error_sigmoid_b_j <- delta_error_sigmoid_b_k*w_k_sigmoid* 
+      a1_sigmoid*(1- a1_sigmoid)
+    delta_error_sigmoid_w_j <- x_tr[n]*delta_error_sigmoid_b_j
+    
+    delta_error_tanh_b_k <- (y_hat_tanh - y_tr[n])
+    delta_error_tanh_w_k <- delta_error_tanh_b_k*a1_tanh
+    delta_error_tanh_b_j <- delta_error_tanh_b_k*w_k_tanh*(1 - a1_tanh^2)
+    delta_error_tanh_w_j <- x_tr[n]*delta_error_tanh_b_j
+    
+    b_k_sigmoid <- b_k_sigmoid - l_rate*delta_error_sigmoid_b_k
+    w_k_sigmoid <- w_k_sigmoid - l_rate*delta_error_sigmoid_w_k
+    b_j_sigmoid <- b_j_sigmoid - l_rate*delta_error_sigmoid_b_j
+    w_j_sigmoid <- w_j_sigmoid - l_rate*delta_error_sigmoid_w_j
+    
+    b_k_tanh <- b_k_tanh - l_rate*delta_error_tanh_b_k
+    w_k_tanh <- w_k_tanh - l_rate*delta_error_tanh_w_k
+    b_j_tanh <- b_j_tanh - l_rate*delta_error_tanh_b_j
+    w_j_tanh <- w_j_tanh - l_rate*delta_error_tanh_w_j
+    
+  }
+  
+}
+```
+
+As can be observed from the log of errors, the tanh activation function produces smaller training and validation errors at the end of the last (25000th) iteration as compared to the sigmoid activation function. The rate of decline in error is also faster in the former case.
+
+The weights and biases learned in each case are available below:
+
+``` {r, q3_2, echo = FALSE}
+kbl(data.frame(Hidden_Layer_Weights_Sigmoid = w_j_sigmoid,
+               Hidden_Layer_Biases_Sigmoid = b_j_sigmoid,
+               Output_Layer_Weights_Sigmoid = w_k_sigmoid))
+kbl(data.frame(Output_Layer_Bias_Sigmoid = b_k_sigmoid))
+
+kbl(data.frame(Hidden_Layer_Weights_Tanh = w_j_tanh,
+               Hidden_Layer_Biases_Tanh = b_j_tanh,
+               Output_Layer_Weights_Tanh = w_k_tanh))
+kbl(data.frame(Output_Layer_Bias_Tanh = b_k_tanh))
+```
+
+We can see significant differences between the weights/biases learned using the sigmoid and tanh activation functions respectively.
+
+Below are graphs of the errors observed at the beginning of each network training iteration. By way of comparison, the above-mentioned comment on errors holds. 
+
+``` {r, q3_3, echo = FALSE, fig.asp = 0.4}
+plot(error_sigmoid/2, ylim = c(0, 5), col = "blue", xlab = "Iteration", ylab = "Error")
+points(error_va_sigmoid/2, col = "red")
+title("Sigmoid Activation: Training (Blue) and Validation (Red) Error")
+
+cat("\n")
+
+plot(error_tanh/2, ylim = c(0, 5), col = "blue", xlab = "Iteration", ylab = "Error")
+points(error_va_tanh/2, col = "red")
+title("Tanh Activation: Training (Blue) and Validation (Red) Error")
+```
+\ 
+
+Plotted below are graphs of predictions vs. labels in the training and validation datasets, as generated by the sigmoid and tanh activated networks. Here again, we can see that the tanh activated network performs better.
+
+``` {r, q3_4, echo = FALSE, fig.asp = 0.4}
+# plot prediction on training data
+
+h1_sigmoid <- (x_tr %*% t(w_j_sigmoid)) + t(matrix(b_j_sigmoid, 10, nrow(tr)))
+h1_tanh <- (x_tr %*% t(w_j_tanh)) + t(matrix(b_j_tanh, 10, nrow(tr)))
+
+a1_sigmoid <- 1 / (1 + exp(-h1_sigmoid))
+a1_tanh <- 2 / (1 + exp(-2*h1_tanh)) - 1
+
+y_hat_sigmoid <- (a1_sigmoid %*% w_k_sigmoid) + b_k_sigmoid
+y_hat_tanh <- (a1_tanh %*% w_k_tanh) + b_k_tanh
+
+plot(x_tr, y_tr, col = "red", xlab = "Var", ylab = "Sin")
+points(x_tr, y_hat_sigmoid, col = "blue")
+title("Sigmoid Activation: Training Predictions (Blue) and Labels (Red)")
+
+cat("\n")
+
+plot(x_tr, y_tr, col = "red", xlab = "Var", ylab = "Sin")
+points(x_tr, y_hat_tanh, col = "blue")
+title("Tanh Activation: Training Predictions (Blue) and Labels (Red)")
+
+cat("\n")
+
+# plot prediction on validation data
+
+h1_sigmoid_va <- (va$Var %*% t(w_j_sigmoid)) + t(matrix(b_j_sigmoid, 10, nrow(va)))
+h1_tanh_va <- (va$Var %*% t(w_j_tanh)) + t(matrix(b_j_tanh, 10, nrow(va)))
+
+a1_sigmoid_va <- 1 / (1 + exp(-h1_sigmoid_va))
+a1_tanh_va <- 2 / (1 + exp(-2*h1_tanh_va)) - 1
+
+y_hat_sigmoid_va <- (a1_sigmoid_va %*% w_k_sigmoid) + b_k_sigmoid
+y_hat_tanh_va <- (a1_tanh_va %*% w_k_tanh) + b_k_tanh
+
+plot(va$Var, va$Sin, col = "red", xlab = "Var", ylab = "Sin")
+points(va$Var, y_hat_sigmoid_va, col = "blue")
+title("Sigmoid Activation: Validation Predictions (Blue) and Labels (Red)")
+
+cat("\n")
+
+plot(va$Var, va$Sin, col = "red", xlab = "Var", ylab = "Sin")
+points(va$Var, y_hat_tanh_va, col = "blue")
+title("Tanh Activation: Validation Predictions (Blue) and Labels (Red)")
+```
+
+A brief description of why tanh activation function performs better than the sigmoid activation function for this task is as follows: the tanh function has range [-1, 1] and is centered at 0, whereas the sigmoid function has range[0, 1] and is centered at 0.5; literature suggests that activation functions centered at 0 train networks faster than others [(see LeCunn et al)](http://yann.lecun.com/exdb/publis/pdf/lecun-98b.pdf)

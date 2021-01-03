@@ -8,7 +8,7 @@ full_data <- scale(subset(parkinsons, select = -total_UPDRS))
 y_full_data <- full_data[, "motor_UPDRS"]
 x_full_data <- subset(full_data, select = -motor_UPDRS)
 
-lambda <- seq(1, 0.05, -0.05)
+lambda <- seq(1, 0.1, -0.1)
 alpha <- 0.5
 pi_thr <- 0.7
 B <- 100
@@ -19,7 +19,7 @@ resampling_indices <- sapply(1:B, function(i)
 models <- sapply(1:B, function(i) glmnet(x_full_data[resampling_indices[, i], ], 
                                          y_full_data[resampling_indices[, i]], 
                                          family = "gaussian", 
-                                         lambda = seq(1, 0.05, -0.05), standardize = F,
+                                         lambda = seq(1, 0.1, -0.1), standardize = F,
                                          penalty.factor = 1/col_weights)$beta != 0)
 num_times_selected <- sapply(1:length(lambda), function(i)
   sapply(1:ncol(x_full_data), function(j) sum(sapply(models, function(x) x[j, i]))))
